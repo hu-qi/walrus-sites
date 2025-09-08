@@ -625,7 +625,9 @@ impl ResourceManager {
                 // Find the longest matching pattern
                 return ignore_patterns
                     .iter()
-                    .any(|pattern| Self::is_pattern_match(pattern, resource_path));
+                    .filter(|pattern| Self::is_pattern_match(pattern, resource_path))
+                    .max_by_key(|pattern| pattern.split('/').count())
+                    .is_some();
             }
         }
         false
@@ -848,6 +850,44 @@ mod tests {
             let result = ResourceManager::derive_http_headers(&ws_resources, path);
             assert_eq!(result.len(), 1);
             assert!(result.contains_key(expected));
+        }
+    }
+
+    #[test]
+    fn test_is_ignored() {
+        let ws_resources = mock_ws_resources_with_ignore();
+        let resource_manager = ResourceManager {
+            ws_resources: Some(ws_resources),
+            max_concurrent: None,
+            epoch_range: None,
+        };
+        
+        // Test longest matching pattern
+        // "/foo/bar/baz/*" should match "/foo/bar/baz/file.txt" (longest match)
+        assert!(resource_manager.is_ignored("/foo/bar/baz/file.txt"));
+        
+        // "/foo/*" should match "/foo/file.txt" but not "/foo/bar/baz/file.txt" 
+        // because the latter has a longer match
+        assert!(resource_manager.is_ignored("/foo/file.txt"));
+        assert!(!resource_manager.is_ignored("/foo/bar/file.txt"));
+        
+        // Test non-matching paths
+        assert!(!resource_manager.is_ignored("/bar/file.txt"));
+        assert!(!resource_manager.is_ignored("/index.html"));
+    }
+
+    /// Helper function for testing the `is_ignored` method.
+    fn mock_ws_resources_with_ignore() -> WSResources {
+        WSResources {
+            headers: None,
+            routes: None,
+            metadata: None,
+            site_name: None,
+            object_id: None,
+            ignore: Some(vec![
+                "/foo/*".to_string(),
+                "/foo/bar/baz/*".to_string(),
+            ]),
         }
     }
 
